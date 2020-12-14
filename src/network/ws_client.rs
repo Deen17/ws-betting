@@ -4,7 +4,7 @@ use tokio::net::TcpStream;
 use log::*;
 use http::Request;
 use super::config::AUTHTOKEN;
-use super::message::Message;
+// use super::message::Message;
 
 pub type WSStream = WebSocketStream<Stream<TcpStream,tokio_native_tls::TlsStream<tokio::net::TcpStream>>>;
 

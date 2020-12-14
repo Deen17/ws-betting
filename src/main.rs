@@ -10,7 +10,7 @@ use network::ws_client::*;
 async fn main()-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let stream = connect().await?;
-    let voting_system = VotingSystem::new(stream);
+    let mut voting_system = VotingSystem::new(stream);
     voting_system.listen().await?;    
     Ok(())
 }

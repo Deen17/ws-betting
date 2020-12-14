@@ -13,11 +13,11 @@ pub enum Message{
 #[derive(Serialize,Deserialize,Debug)]
 pub struct NamesDict {
     connectioncount:    usize,
-    users:              Vec<UserData>
+    pub users:              Vec<UserData>
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
-enum UserData {
+pub enum UserData {
     One {nick: String, features: Vec<String>}
 }
