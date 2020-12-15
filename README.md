@@ -1,1 +1,1 @@
-# ws-voting
+# ws-betting
