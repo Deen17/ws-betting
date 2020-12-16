@@ -79,11 +79,38 @@ impl Bookmaker{
                 format!("Your points: {}", points)
             }
             "help" => {
-                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>".into()
+                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>,odds, (if privileged) start, (if privileged) cancel, (if privileged) call <1 or 2>".into()
+            }
+            "odds" if self.in_progress => "No bets in progress.".into(),
+            "odds" if self.bets.len() == 0 => "No bets yet.".into(),
+            "odds" => {
+                format!("{}",self.odds())
+            }
+            "start" if self.in_progress => {
+                "betting already in progress".into()
+            }
+            "start" => {
+                "unimplemented".into()
+            }
+            "cancel" => {
+                "unimplemented".into()
+            }
+            "call" if !self.in_progress=> {
+                "Betting not in progress".into()
+            }
+            "call" if choice_str.is_none() ||amt_str.is_none() | 
+                choice_str.unwrap().parse::<usize>().is_err() |
+                (choice_str.unwrap().parse::<usize>().unwrap() > 2)
+                => "Usage: call <1 or 2>".into(),
+            "call" => {
+                let winner = choice_str.unwrap().parse::<usize>()?;
+
+                "unimplemented".into()
             }
             "bet" if !self.in_progress => "Bet not currently in progress.".into(),
             "bet" if choice_str.is_none() ||amt_str.is_none() | 
-                choice_str.unwrap().parse::<usize>().is_err() || amt_str.unwrap().parse::<usize>().is_err() 
+                (choice_str.unwrap().parse::<usize>().is_err() || amt_str.unwrap().parse::<usize>().is_err()) |
+                (choice_str.unwrap().parse::<usize>().unwrap() > 2)
                 => "Usage: bet <1 or 2> <amt: positive integer>".into(),
             "bet"  => {
                 // format: bet <choice> <amt>
@@ -113,8 +140,6 @@ impl Bookmaker{
             }
         };
 
-        info!("res: {}", res);
-        println!("res: {}", res);
         self.send("PRIVMSG" , &format!("{{\"nick\":\"{}\",\"data\":\"{}\"}}",nick,res)).await?;
         Ok(())
     }
@@ -123,7 +148,6 @@ impl Bookmaker{
     async fn send(&mut self, msg_type: &str, payload: &str)
     -> std::result::Result<(), tokio_tungstenite::tungstenite::Error>{
         let msg = format!("{} {}", msg_type, payload);
-        println!("private msg: '{}'", msg);
         self.ws.send(tMessage::text(msg)).await
     }
 }

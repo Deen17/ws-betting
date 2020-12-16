@@ -1,6 +1,6 @@
 use crate::network::message::{UserData,JoinDict};
 use crate::dominion::fs::{get_points,set_points};
-
+use crate::network::config::INITIAL_POINTS;
 
 #[derive(Debug)]
 pub struct User {
@@ -14,8 +14,8 @@ impl From<UserData> for User {
         let points = match get_points(nick.as_str()){
             Ok(p)=> p,
             Err(_) => {
-                set_points(nick.as_str(), 0).unwrap();
-                0
+                set_points(nick.as_str(), INITIAL_POINTS).unwrap();
+                INITIAL_POINTS
             }
         };
         Self {
@@ -30,8 +30,8 @@ impl From<JoinDict> for User {
         let points = match get_points(user.nick.as_str()){
             Ok(p)=> p,
             Err(_) => {
-                set_points(user.nick.as_str(), 0).unwrap();
-                0
+                set_points(user.nick.as_str(), INITIAL_POINTS).unwrap();
+                INITIAL_POINTS
             }
         };
         Self {
