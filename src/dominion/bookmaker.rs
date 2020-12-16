@@ -13,11 +13,14 @@ use serde_json;
 use std::collections::HashMap;
 use crate::dominion::fs::*;
 use log::*;
+use commitlog::*;
+use std::io::Result as ioResult;
 
 pub struct Bookmaker {
     ws: WSStream,
     users: HashMap<String, User>,
     bets: HashMap<String, (usize,usize)>,
+    commits: CommitLog,
     in_progress: bool
 }
 
@@ -27,8 +30,60 @@ impl Bookmaker{
             ws,
             users: HashMap::new(),
             bets: HashMap::new(),
+            commits: create_commit_log(),
             in_progress: false
         }
+    }
+
+    fn odds(&self) -> (f32,f32){
+        let one: usize = self.bets.values().filter(|(choice, _)| *choice == 1).map(|(_,amt)| amt).sum();
+        let two: usize = self.bets.values().filter(|(choice, _)| *choice == 2).map(|(_,amt)| amt).sum();
+        if self.bets.is_empty() || one == 0 || two  == 0 {return (0f32,0f32)}
+        let total = one+two;
+        (
+            (total / one) as f32,
+            (total / two) as f32
+        )
+    }
+
+    fn cancel(&mut self) {
+        self.bets.clear();
+        self.in_progress = false;
+    }
+
+    /// assumes that a query for nick will always work
+    fn points<S>(&self, nick: S) -> usize
+        where S: Into<String>  {
+        self.users.get(&nick.into()).map(|user| user.points).unwrap()
+    }
+
+    // winner should only be 1 or 2
+    fn payout(&mut self, winner: usize) -> ioResult< Vec<(String, usize)>> {
+        let odds = self.odds();
+        if odds.0 == 0f32 || odds.1 == 0f32 {
+            self.cancel();
+            return Err( 
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "no bets placed yet"));
+        }
+        let mut results: Vec<(String, usize)> = Vec::with_capacity(self.bets.len());
+        self
+            .bets
+            .iter()
+            .filter(|(_, (choice, _))| *choice == winner)
+            .for_each(|(nick, (_, bet))| results.push((nick.clone(), self.points(nick) + (*bet as f32 * if winner == 1 {odds.0} else {odds.1}) as usize)));      // TODO: fix the entire system to use f32 or f64?
+        self
+            .bets
+            .iter()
+            .filter(|(_, (choice, _))| *choice != winner)
+            .for_each(|(nick, (_, bet))| results.push((nick.clone(), self.points(nick).checked_sub(*bet).unwrap_or(0))));     // TODO: fix the entire system to use f32 or f64?
+        let encoded: String = serde_json::to_string(&results).unwrap();
+        self.commits.append_msg(encoded).unwrap();
+        for (nick, val) in results.iter(){
+            set_points(nick,*val)?;
+        }
+        Ok(results)
     }
 
     pub async fn listen(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>>{
@@ -84,16 +139,20 @@ impl Bookmaker{
             "odds" if self.in_progress => "No bets in progress.".into(),
             "odds" if self.bets.len() == 0 => "No bets yet.".into(),
             "odds" => {
-                format!("{}",self.odds())
+                // format!("{}",self.odds())
+                let odds = self.odds();
+                format!("Odds: {}:{}", odds.0, odds.1)
             }
             "start" if self.in_progress => {
                 "betting already in progress".into()
             }
             "start" => {
-                "unimplemented".into()
+                self.in_progress =  true;
+                "Betting has started".into()
             }
             "cancel" => {
-                "unimplemented".into()
+                self.bets.clear();
+                "Betting has been cancelled".into()
             }
             "call" if !self.in_progress=> {
                 "Betting not in progress".into()
@@ -104,8 +163,38 @@ impl Bookmaker{
                 => "Usage: call <1 or 2>".into(),
             "call" => {
                 let winner = choice_str.unwrap().parse::<usize>()?;
-
-                "unimplemented".into()
+                let response: String = match self.payout(winner) {
+                    Ok(results) => {
+                        for (better, val) in results.iter() {
+                            let bet: &(usize, usize) = self.bets.get(better).unwrap();
+                            let odds = self.odds();
+                            let winning_odds = if winner == 1 {odds.0} else {odds.1};
+                            let indiv_res: String = 
+                                format!("You {} {} points. You now have {} points.",
+                                if bet.0 == winner {"won"} else {"lost"},
+                                if bet.0 == winner {(bet.1 as f32 * winning_odds) as usize} else {bet.1},
+                                val);
+                            self.send_pm(better.to_string(), indiv_res).await?;
+                        }
+                        let biggest_winner = self.bets
+                            .iter()
+                            .filter(|(_, (c,_))| *c == winner)
+                            .max_by(|x,y| (x.1.1).cmp(&y.1.1))
+                            .unwrap();
+                        let r = format!("Bet finished: Biggest Winner: {} with a bet of {}", biggest_winner.0.clone(), biggest_winner.1.1);
+                        self.bets.clear();
+                        r
+                    },
+                    Err(e) if e.kind() == std::io::ErrorKind::Other => {
+                        "No bets placed on at least one side yet. Try again later".into()
+                    },
+                    Err(e) => {
+                        error!("Calling the bet failed. last commit: {:?}", self.commits.last_offset());
+                        error!("Error: {:?}", e);
+                        panic!()
+                    }
+                };
+                response
             }
             "bet" if !self.in_progress => "Bet not currently in progress.".into(),
             "bet" if choice_str.is_none() ||amt_str.is_none() | 
@@ -129,6 +218,7 @@ impl Bookmaker{
                 else if amt > 0{
                     let (_, cur) =self.bets.entry(nick.clone()).or_insert((choice, 0));
                     *cur += amt;
+                    debug!("Bet placed by {} for {}", nick, amt);
                     "Bet Placed!".into()
                 }
                 else {
@@ -140,14 +230,20 @@ impl Bookmaker{
             }
         };
 
+        self.send_pm(nick,res).await?;
+        Ok(())
+    }
+
+    async fn send_pm(&mut self, nick: String, res: String)
+    -> Result<() , Box<dyn std::error::Error + Send + Sync>>{
         self.send("PRIVMSG" , &format!("{{\"nick\":\"{}\",\"data\":\"{}\"}}",nick,res)).await?;
         Ok(())
     }
 
-
     async fn send(&mut self, msg_type: &str, payload: &str)
     -> std::result::Result<(), tokio_tungstenite::tungstenite::Error>{
         let msg = format!("{} {}", msg_type, payload);
+        debug!("Send: {}", msg);
         self.ws.send(tMessage::text(msg)).await
     }
 }

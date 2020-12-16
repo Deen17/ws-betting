@@ -20,7 +20,7 @@ pub async fn connect()
         .body(())
         .unwrap();
     let (socket, res) = connect_async(req).await?;
-    info!("res:\n{:?}", res);
+    info!("Response Status: {:?}", res.status());
     
     Ok(socket)
 }

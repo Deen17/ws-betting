@@ -3,6 +3,7 @@
 use std::fs::{read_to_string,write};
 // use std::io::prelude::*;
 use std::io::Result as ioResult;
+use commitlog::*;
 
 pub fn get_points(nick: &str) -> ioResult<usize>{
     let points = read_to_string(format!("points/{}", nick))?
@@ -33,4 +34,11 @@ pub fn remove_points(nick: &str, points: usize) -> ioResult<()>{
         return Err(std::io::Error::new(std::io::ErrorKind::Other, "arithmetic overflow"))
     }
     write(format!("points/{}", nick),format!("{}", cur - points))
+}
+
+pub fn create_commit_log() -> CommitLog{
+    let opts = LogOptions::new("commits");
+    let log = CommitLog::new(opts).unwrap();
+
+    log
 }

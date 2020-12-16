@@ -4,8 +4,8 @@ use crate::network::config::INITIAL_POINTS;
 
 #[derive(Debug)]
 pub struct User {
-    features: Vec<String>,
-    points: usize
+    pub features: Vec<String>,
+    pub points: usize
 }
 
 impl From<UserData> for User {
