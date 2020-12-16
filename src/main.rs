@@ -3,7 +3,7 @@
 pub mod dominion;
 pub mod network;
 
-use dominion::vote::*;
+use dominion::bookmaker::*;
 use network::ws_client::*;
 
 #[tokio::main]

@@ -1,5 +1,5 @@
 [package]
-name = "dgg-voting"
+name = "ws-betting"
 version = "0.1.0"
 authors = ["Deen17"]
 edition = "2018"

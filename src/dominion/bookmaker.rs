@@ -2,7 +2,8 @@
 
 use crate::network::{
     ws_client::*,
-    message::*
+    message::*,
+    config::NICK
 };
 use crate::dominion::user::User;
 use tokio::stream::{StreamExt};
@@ -16,7 +17,8 @@ use log::*;
 pub struct Bookmaker {
     ws: WSStream,
     users: HashMap<String, User>,
-    bets: HashMap<String, (usize,usize)>
+    bets: HashMap<String, (usize,usize)>,
+    in_progress: bool
 }
 
 impl Bookmaker{
@@ -24,7 +26,8 @@ impl Bookmaker{
         Self{
             ws,
             users: HashMap::new(),
-            bets: HashMap::new()
+            bets: HashMap::new(),
+            in_progress: false
         }
     }
 
@@ -52,7 +55,6 @@ impl Bookmaker{
                     }
                     "PRIVMSG" => {
                         let pm: PrivateMessage = serde_json::from_str(payload)?;
-                        println!("pm: {:?}\n", pm);
                         self.private_command(pm.nick,pm.data.as_str()).await?;
                     }
                     _ => {println!("{}", data);}
@@ -68,46 +70,52 @@ impl Bookmaker{
         let (msg_type, payload) = msg
             .split_at(
                 msg.find(|c| c == ' ' || c == '\n' || c == '\0').unwrap_or(msg.len()));
-        match msg_type.to_ascii_lowercase().as_str(){
+        let mut iter = payload.trim().split(' ').take(2);
+        let choice_str = iter.next();
+        let amt_str = iter.next();
+        let res: String = match msg_type.to_ascii_lowercase().as_str(){
             "points" => {
                 let points: usize = get_points(nick.as_str())?;
-                let res = format!("Your points: {}", points);
-                info!("{}", res);
-                self.send("PRIVMSG", &res).await?;
+                format!("Your points: {}", points)
             }
             "help" => {
-                let res = "Commands: help,points,vote <amount>";
-                info!("{}", res);
-                self.send("PRIVMSG", res).await?;
+                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>".into()
             }
-            "bet" => {
-                // handle if bet is not going on right now
-
-                // handle payload
+            "bet" if !self.in_progress => "Bet not currently in progress.".into(),
+            "bet" if choice_str.is_none() ||amt_str.is_none() | 
+                choice_str.unwrap().parse::<usize>().is_err() || amt_str.unwrap().parse::<usize>().is_err() 
+                => "Usage: bet <1 or 2> <amt: positive integer>".into(),
+            "bet"  => {
+                // format: bet <choice> <amt>
+                let amt: usize = amt_str.unwrap().parse()?;
+                let choice: usize = choice_str.unwrap().parse()?;
                 let points: usize = get_points(&nick)?;
                 // TODO: handle bets
-                let (_choice, current_bet) = self.bets.get(&nick).unwrap_or(&(0,0));
-                let res = match payload.trim().parse::<usize>(){
-                    Ok(amt) if amt + current_bet > points =>{
-                        "You tried to bet too many points."
-                    }
-                    Ok(amt) if amt > 0=>{
-                        *self.bets.entry(nick).or_insert(0) += amt;
-                        "Bet Placed!"
-                    }
-                    _ => {
-                        "Error parsing <amount>. Should be a positive integer"
-                    }
-                };
-                self.send("PRIVMSG", res).await?;
-                println!("{}", res);
+                let (old_choice, current_bet) = self.bets.get(&nick).unwrap_or(&(0,0));
+
+                if old_choice != &choice {
+                    "You can't change your bet once it's placed".into()
+                } 
+                else if amt + current_bet > points {
+                    "You tried to bet too many points.".into()
+                }
+                else if amt > 0{
+                    let (_, cur) =self.bets.entry(nick.clone()).or_insert((choice, 0));
+                    *cur += amt;
+                    "Bet Placed!".into()
+                }
+                else {
+                    "Error placing bet".into()
+                }
             }
             _ => {
-                self.send("PRIVMSG", "Error: Unknown Command. Try using \"help\"").await?;
-                println!("Error: Unknown Command. Try using \"help\"");
+                "Error: Unknown Command. Try using help".into()
             }
         };
 
+        info!("res: {}", res);
+        println!("res: {}", res);
+        self.send("PRIVMSG" , &format!("{{\"nick\":\"{}\",\"data\":\"{}\"}}",nick,res)).await?;
         Ok(())
     }
 
@@ -115,6 +123,7 @@ impl Bookmaker{
     async fn send(&mut self, msg_type: &str, payload: &str)
     -> std::result::Result<(), tokio_tungstenite::tungstenite::Error>{
         let msg = format!("{} {}", msg_type, payload);
+        println!("private msg: '{}'", msg);
         self.ws.send(tMessage::text(msg)).await
     }
 }
