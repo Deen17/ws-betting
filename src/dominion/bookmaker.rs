@@ -207,7 +207,7 @@ impl Bookmaker{
                 self.cancel();
                 "Betting has been cancelled".into()
             }
-            "call" if nick != "cash" && !self.users.get(&nick).unwrap().features.contains(&String::from("protected")) => {
+            "call" if nick != DEV && !self.users.get(&nick).unwrap().features.contains(&String::from("protected")) => {
                 "you do not have the required permissions".into()
             }
             "call" if !self.in_progress=> {
