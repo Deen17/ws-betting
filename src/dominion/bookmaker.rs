@@ -86,7 +86,18 @@ impl Bookmaker{
         Ok(results)
     }
 
+    pub fn payout_commit(&mut self) {
+        if let Some(latest_offset) = self.commits.last_offset(){
+            let results: Vec<(String, usize)> = serde_json::from_str(&String::from_utf8_lossy(&self.commits.read(latest_offset, ReadLimit::default()).unwrap().into_bytes())).unwrap();
+            for (nick, val) in results.iter(){
+                set_points(nick,*val).unwrap(); // can fail if a nick does not exist in points directory
+            }
+        }
+    }
+
     pub async fn listen(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>>{
+        // first, do the last commit.
+        self.payout_commit();
         while let Some(msg) = self.ws.next().await {
             let msg = msg?;
             if let tMessage::Text(data) = msg{
@@ -151,7 +162,7 @@ impl Bookmaker{
                 "Betting has started".into()
             }
             "cancel" => {
-                self.bets.clear();
+                self.cancel();
                 "Betting has been cancelled".into()
             }
             "call" if !self.in_progress=> {
@@ -182,7 +193,8 @@ impl Bookmaker{
                             .max_by(|x,y| (x.1.1).cmp(&y.1.1))
                             .unwrap();
                         let r = format!("Bet finished: Biggest Winner: {} with a bet of {}", biggest_winner.0.clone(), biggest_winner.1.1);
-                        self.bets.clear();
+                        // clear bets
+                        self.cancel();
                         r
                     },
                     Err(e) if e.kind() == std::io::ErrorKind::Other => {
