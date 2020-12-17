@@ -3,7 +3,7 @@
 use crate::network::{
     ws_client::*,
     message::*,
-    config::NICK
+    config::DEV
 };
 use crate::dominion::user::User;
 use tokio::stream::{StreamExt};
@@ -153,11 +153,12 @@ impl Bookmaker{
                     "QUIT" =>{
                         let join_msg: QuitDict = serde_json::from_str(payload)?;
                         self.users.remove(&join_msg.nick);
-                    }
+                    },
                     "PRIVMSG" => {
                         let pm: PrivateMessage = serde_json::from_str(payload)?;
                         self.private_command(pm.nick,pm.data.as_str()).await?;
                     }
+                    "MSG" => {},
                     _ => {println!("{}", data);}
                 };
             }
@@ -180,7 +181,7 @@ impl Bookmaker{
                 format!("Your points: {}", points)
             }
             "help" => {
-                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>,odds, (can do the rest if privileged) start, cancel, call <1 or 2>, cancel".into()
+                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG. Commands: help,points,bet <1 or 2> <amount>,odds, (can do the rest if privileged) start, cancel, call <1 or 2>".into()
             }
             "odds" if !self.in_progress => "No bets in progress.".into(),
             "odds" if self.bets.len() == 0 => "No bets yet.".into(),
@@ -189,6 +190,9 @@ impl Bookmaker{
                 let odds = self.odds();
                 format!("Odds: {}:{}", odds.0, odds.1)
             }
+            "start" if nick != DEV && !self.users.get(&nick).unwrap().features.contains(&String::from("protected")) => {
+                "you do not have the required permissions".into()
+            }
             "start" if self.in_progress => {
                 "betting already in progress".into()
             }
@@ -196,9 +200,15 @@ impl Bookmaker{
                 self.in_progress =  true;
                 "Betting has started".into()
             }
+            "cancel" if nick != DEV && !self.users.get(&nick).unwrap().features.contains(&String::from("protected")) => {
+                "you do not have the required permissions".into()
+            }
             "cancel" => {
                 self.cancel();
                 "Betting has been cancelled".into()
+            }
+            "call" if nick != "cash" && !self.users.get(&nick).unwrap().features.contains(&String::from("protected")) => {
+                "you do not have the required permissions".into()
             }
             "call" if !self.in_progress=> {
                 "Betting not in progress".into()
