@@ -3,10 +3,6 @@ notes.txt
 points/
 log/
 commits/
-
-#Added by cargo
-#
-#already existing elements were commented out
-
-#/target
+.vscode/
 src/network/config.rs
+

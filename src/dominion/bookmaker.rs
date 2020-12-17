@@ -84,7 +84,8 @@ impl Bookmaker{
             .iter()
             .filter(|(_, (choice, _))| *choice != winner)
             .for_each(|(nick, (_, bet))| results.push((nick.clone(), self.points(nick).checked_sub(*bet).unwrap_or(0))));     // TODO: fix the entire system to use f32 or f64?
-        let encoded: String = serde_json::to_string(&results).unwrap();
+        // let encoded: String = serde_json::to_string(&results).unwrap();
+        let encoded = bincode::serialize(&results).unwrap();
         self.commits.append_msg(encoded).unwrap();
         for (nick, val) in results.iter(){
             set_points(nick,*val)?;
@@ -94,7 +95,11 @@ impl Bookmaker{
 
     pub fn payout_commit(&mut self) {
         if let Some(latest_offset) = self.commits.last_offset(){
-            let results: Vec<(String, usize)> = serde_json::from_str(&String::from_utf8_lossy(&self.commits.read(latest_offset, ReadLimit::default()).unwrap().into_bytes())).unwrap();
+            let buf = self.commits.read(latest_offset, ReadLimit::default()).unwrap().into_bytes();
+            // let res_str = String::from_utf8_lossy(&buf[21..]);
+            // let results: Vec<(String, usize)> = serde_json::from_str(&res_str).unwrap();
+            let results: Vec<(String, usize)> = bincode::deserialize(&buf[21..]).unwrap(); // TODO: test bincode deserialization
+            debug!("saved results from last run: {:?}", results);
             for (nick, val) in results.iter(){
                 set_points(nick,*val).unwrap(); // can fail if a nick does not exist in points directory
             }
@@ -213,12 +218,16 @@ impl Bookmaker{
             "call" if !self.in_progress=> {
                 "Betting not in progress".into()
             }
-            "call" if choice_str.is_none() ||amt_str.is_none() | 
-                choice_str.unwrap().parse::<usize>().is_err() |
-                (choice_str.unwrap().parse::<usize>().unwrap() > 2)
+            "call" if self.odds() == (0f32,0f32) => {
+                "No bets placed on at least one side".into()
+            }
+            "call" if choice_str.is_none() | 
+                choice_str.unwrap().trim().parse::<usize>().is_err() |
+                (choice_str.unwrap().trim().parse::<usize>().unwrap() > 2)
                 => "Usage: call <1 or 2>".into(),
             "call" => {
-                let winner = choice_str.unwrap().parse::<usize>()?;
+                let winner = choice_str.unwrap().trim().parse::<usize>()?;
+                debug!("Winner: {}", winner);
                 let response: String = match self.payout(winner) {
                     Ok(results) => {
                         for (better, val) in results.iter() {
@@ -268,7 +277,7 @@ impl Bookmaker{
                 // TODO: handle bets
                 let (old_choice, current_bet) = self.bets.get(&nick).unwrap_or(&(0,0));
 
-                if old_choice != &choice {
+                if old_choice != &choice && *old_choice != 0 {
                     "You can't change your bet once it's placed".into()
                 } 
                 else if amt + current_bet > points {
@@ -283,6 +292,14 @@ impl Bookmaker{
                 else {
                     "Error placing bet".into()
                 }
+            },
+            "bets" if nick == DEV => {
+                debug!("Bets: {:?}", self.bets);
+                "Bets logged".into()
+            }
+            "users" if nick == DEV => {
+                debug!("Users: {:?}", self.users);
+                "Users logged".into()
             }
             _ => {
                 "Error: Unknown Command. Try using help".into()
