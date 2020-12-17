@@ -17,7 +17,7 @@ use commitlog::*;
 use std::io::Result as ioResult;
 use std::time::{Instant, Duration};
 
-static TACCRUAL: u64 = 5; // 5 minutes
+static TACCRUAL_MINS: u64 = 5; 
 static SALARY: usize = 50;
 
 pub struct Bookmaker {
@@ -105,11 +105,11 @@ impl Bookmaker{
         for (nick, User {features, points}) in self.users.iter_mut(){
             // determine multiplier based on sub status
             let multiplier: f32 =
-                if features.contains(&String::from("flair8")) {2.25} 
-                else if features.contains(&String::from("protected")) {2.25} 
-                else if features.contains(&String::from("flair3")) {2.0} 
-                else if features.contains(&String::from("flair1")) {1.8} 
-                else if features.contains(&String::from("flair13")) {1.4} 
+                if features.contains(&String::from("flair8")) {2.25}                // T4
+                else if features.contains(&String::from("protected")) {2.0}         // Mods
+                else if features.contains(&String::from("flair3")) {1.8}            // T3
+                else if features.contains(&String::from("flair1")) {1.4}            // T2
+                else if features.contains(&String::from("flair13")) {1.2}           // T1
                 else if features.contains(&String::from("subscriber")) {1.2} 
                 else {1.0};
             // add points
@@ -130,7 +130,7 @@ impl Bookmaker{
             // instead of running a different thread for point accrual, could just check timestamp of message
             // receipt and see if T(m) - T(last point accrual) >=  T(accrual period)
             let duration: Duration = Instant::now().duration_since(self.accrual_timestamp);
-            if duration.as_secs() >= TACCRUAL {
+            if duration.as_secs() >= TACCRUAL_MINS * 60 {
                 self.watch_award();
             }
             // handle message
@@ -180,9 +180,9 @@ impl Bookmaker{
                 format!("Your points: {}", points)
             }
             "help" => {
-                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>,odds, (if privileged) start, (if privileged) cancel, (if privileged) call <1 or 2>".into()
+                "Hi FeelsOkayMan I'm a bookkeeper for betting in D.GG, but right now, I'm still a work in progress. Commands: help,points,bet <1 or 2> <amount>,odds, (can do the rest if privileged) start, cancel, call <1 or 2>, cancel".into()
             }
-            "odds" if self.in_progress => "No bets in progress.".into(),
+            "odds" if !self.in_progress => "No bets in progress.".into(),
             "odds" if self.bets.len() == 0 => "No bets yet.".into(),
             "odds" => {
                 // format!("{}",self.odds())
