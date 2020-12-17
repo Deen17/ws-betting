@@ -123,7 +123,9 @@ impl Bookmaker{
             set_points(nick,*points).unwrap();
         }
 
-
+        // TODO: verify
+        // because we know that at this point, the last commit's effects are saved to disk, we can flush the log.
+        self.commits.flush().unwrap();
         // change accural timestamp to now
         self.accrual_timestamp = Instant::now();
     }
