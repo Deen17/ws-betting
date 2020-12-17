@@ -15,13 +15,18 @@ use crate::dominion::fs::*;
 use log::*;
 use commitlog::*;
 use std::io::Result as ioResult;
+use std::time::{Instant, Duration};
+
+static TACCRUAL: u64 = 5; // 5 minutes
+static SALARY: usize = 50;
 
 pub struct Bookmaker {
     ws: WSStream,
     users: HashMap<String, User>,
     bets: HashMap<String, (usize,usize)>,
     commits: CommitLog,
-    in_progress: bool
+    in_progress: bool,
+    accrual_timestamp: Instant
 }
 
 impl Bookmaker{
@@ -31,7 +36,8 @@ impl Bookmaker{
             users: HashMap::new(),
             bets: HashMap::new(),
             commits: create_commit_log(),
-            in_progress: false
+            in_progress: false,
+            accrual_timestamp: Instant::now()
         }
     }
 
@@ -95,10 +101,39 @@ impl Bookmaker{
         }
     }
 
+    pub fn watch_award(&mut self) {
+        for (nick, User {features, points}) in self.users.iter_mut(){
+            // determine multiplier based on sub status
+            let multiplier: f32 =
+                if features.contains(&String::from("flair8")) {2.25} 
+                else if features.contains(&String::from("protected")) {2.25} 
+                else if features.contains(&String::from("flair3")) {2.0} 
+                else if features.contains(&String::from("flair1")) {1.8} 
+                else if features.contains(&String::from("flair13")) {1.4} 
+                else if features.contains(&String::from("subscriber")) {1.2} 
+                else {1.0};
+            // add points
+            *points += (SALARY as f32 * multiplier) as usize;
+            // commit to file system
+            set_points(nick,*points).unwrap();
+        }
+
+
+        // change accural timestamp to now
+        self.accrual_timestamp = Instant::now();
+    }
+
     pub async fn listen(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>>{
         // first, do the last commit.
         self.payout_commit();
         while let Some(msg) = self.ws.next().await {
+            // instead of running a different thread for point accrual, could just check timestamp of message
+            // receipt and see if T(m) - T(last point accrual) >=  T(accrual period)
+            let duration: Duration = Instant::now().duration_since(self.accrual_timestamp);
+            if duration.as_secs() >= TACCRUAL {
+                self.watch_award();
+            }
+            // handle message
             let msg = msg?;
             if let tMessage::Text(data) = msg{
                 let (msg_type, payload) = data.split_at(data.find(" ").unwrap());
@@ -210,13 +245,15 @@ impl Bookmaker{
             }
             "bet" if !self.in_progress => "Bet not currently in progress.".into(),
             "bet" if choice_str.is_none() ||amt_str.is_none() | 
-                (choice_str.unwrap().parse::<usize>().is_err() || amt_str.unwrap().parse::<usize>().is_err()) |
-                (choice_str.unwrap().parse::<usize>().unwrap() > 2)
+                (choice_str.unwrap().trim().parse::<usize>().is_err() || amt_str.unwrap().trim().parse::<usize>().is_err()) |
+                (choice_str.unwrap().trim().parse::<usize>().unwrap() > 2) |
+                (choice_str.unwrap().trim().parse::<usize>().unwrap() == 0) |
+                (amt_str.unwrap().trim().parse::<usize>().unwrap() == 0)
                 => "Usage: bet <1 or 2> <amt: positive integer>".into(),
             "bet"  => {
                 // format: bet <choice> <amt>
-                let amt: usize = amt_str.unwrap().parse()?;
-                let choice: usize = choice_str.unwrap().parse()?;
+                let amt: usize = amt_str.unwrap().trim().parse()?;
+                let choice: usize = choice_str.unwrap().trim().parse()?;
                 let points: usize = get_points(&nick)?;
                 // TODO: handle bets
                 let (old_choice, current_bet) = self.bets.get(&nick).unwrap_or(&(0,0));
