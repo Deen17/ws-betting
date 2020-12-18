@@ -133,7 +133,7 @@ impl Bookmaker{
     pub async fn listen(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>>{
         // first, do the last commit.
         self.payout_commit();
-        while let Some(msg) = self.ws.next().await {
+        while let Some(Ok(msg)) = self.ws.next().await {
             // instead of running a different thread for point accrual, could just check timestamp of message
             // receipt and see if T(m) - T(last point accrual) >=  T(accrual period)
             let duration: Duration = Instant::now().duration_since(self.accrual_timestamp);
@@ -141,7 +141,7 @@ impl Bookmaker{
                 self.watch_award();
             }
             // handle message
-            let msg = msg?;
+            // let msg = _msg?;
             if let tMessage::Text(data) = msg{
                 let (msg_type, payload) = data.split_at(data.find(" ").unwrap());
                 match msg_type {
